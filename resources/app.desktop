@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=System Monitor
+Comment=Monitor system resources
+Type=Application
+Icon=com.zachvlat.system-monitor
+Exec=system-monitor
+Terminal=false
+StartupNotify=true
+Categories=System;Monitor;
+Keywords=System;Monitor;CPU;Memory;
