@@ -15,3 +15,5 @@ debian/*
 flatpak/.flatpak-builder/
 flatpak/build/
 flatpak/repo/
+.flatpak-builder
+*.flatpak

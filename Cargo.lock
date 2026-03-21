@@ -923,6 +923,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosmic-monitor"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "i18n-embed",
+ "i18n-embed-fl",
+ "libcosmic",
+ "open",
+ "rust-embed",
+ "sysinfo",
+ "tokio",
+]
+
+[[package]]
 name = "cosmic-protocols"
 version = "0.2.0"
 source = "git+https://github.com/pop-os/cosmic-protocols?rev=160b086#160b086abe03cd34a8a375d7fbe47b24308d1f38"
@@ -4436,20 +4450,6 @@ dependencies = [
  "memchr",
  "ntapi",
  "windows 0.57.0",
-]
-
-[[package]]
-name = "system-monitor"
-version = "0.1.0"
-dependencies = [
- "futures-util",
- "i18n-embed",
- "i18n-embed-fl",
- "libcosmic",
- "open",
- "rust-embed",
- "sysinfo",
- "tokio",
 ]
 
 [[package]]

@@ -1,14 +1,14 @@
-# System Monitor
+# Cosmic Monitor
 
 A system monitor application for COSMIC desktop.
 
 ## Features
 
-- **Overview** - CPU, memory, and process summary
+- **Overview** - System information and resource usage summary
 - **CPU** - Per-core usage and frequency information
 - **Memory** - Used/available/total with visual progress bar
-- **Processes** - Top 20 processes by CPU usage
-- **Network** - Interface statistics and total data transferred
+- **Processes** - Top 20 processes with sorting by name, CPU, or memory
+- **Network** - Total data downloaded and uploaded
 - **Disks** - Mounted disk usage with progress bars
 
 ## Building
@@ -20,21 +20,21 @@ cargo build --release
 ## Running
 
 ```bash
-./target/release/system-monitor
+./target/release/cosmic-monitor
 ```
 
 ## Flatpak
 
 Build the Flatpak:
 ```bash
-cd flatpak
-flatpak-builder --force-clean --repo=repo build com.zachvlat.test.yml
-flatpak build-bundle repo system-monitor.flatpak com.zachvlat.system-monitor
+./build-flatpak.sh
 ```
+
+This creates `cosmic-monitor.flatpak` which can be installed on other computers.
 
 Install:
 ```bash
-flatpak install system-monitor.flatpak
+flatpak install cosmic-monitor.flatpak
 ```
 
 ## Dependencies

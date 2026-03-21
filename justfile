@@ -1,7 +1,7 @@
 # Name of the application's binary.
-name := 'system-monitor'
+name := 'cosmic-monitor'
 # The unique ID of the application.
-appid := 'com.zachvlat.system-monitor'
+appid := 'com.zachvlat.cosmic-monitor'
 
 # Path to root file system, which defaults to `/`.
 rootdir := ''

@@ -1,10 +1,10 @@
 [package]
-name = "system-monitor"
+name = "cosmic-monitor"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-v3"
 description = "System monitor for COSMIC desktop"
-repository = "https://github.com/zachvlat/system-monitor"
+repository = "https://github.com/zachvlat/cosmic-monitor"
 
 [dependencies]
 futures-util = "0.3.31"
