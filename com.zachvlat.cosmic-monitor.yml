@@ -12,6 +12,7 @@ finish-args:
   - --device=dri
   - --share=network
   - --filesystem=host
+  - --filesystem=/proc:ro
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:

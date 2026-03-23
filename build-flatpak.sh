@@ -2,6 +2,9 @@
 set -e
 cd "$(dirname "$0")"
 
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
+flatpak install -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 || true
+
 rm -rf .flatpak-builder/repo /tmp/cosmic-monitor-build /tmp/build-dir
 
 cargo build --release
@@ -18,7 +21,7 @@ cp resources/icons/hicolor/scalable/apps/icon.svg /tmp/build-dir/files/share/ico
 
 flatpak build-finish /tmp/build-dir --command=cosmic-monitor \
     --share=ipc --socket=fallback-x11 --socket=wayland \
-    --device=dri --share=network --filesystem=host
+    --device=dri --share=network --filesystem=host --filesystem=/proc:ro
 
 flatpak build-export .flatpak-builder/repo /tmp/build-dir
 flatpak build-bundle .flatpak-builder/repo cosmic-monitor.flatpak com.zachvlat.cosmic-monitor

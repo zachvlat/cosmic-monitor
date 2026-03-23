@@ -18,6 +18,10 @@ pub struct AppModel {
     cpu_usage: f32,
     memory_used: u64,
     memory_total: u64,
+    gpu_name: String,
+    gpu_usage: f32,
+    gpu_memory_used: u64,
+    gpu_memory_total: u64,
     process_sort: ProcessSort,
     hostname: String,
     username: String,
@@ -74,6 +78,11 @@ impl cosmic::Application for AppModel {
             .icon(icon::from_name("cpu-symbolic"));
 
         nav.insert()
+            .text("GPU")
+            .data::<Page>(Page::Gpu)
+            .icon(icon::from_name("video-card-symbolic"));
+
+        nav.insert()
             .text("Memory")
             .data::<Page>(Page::Memory)
             .icon(icon::from_name("drive-harddisk-symbolic"));
@@ -124,6 +133,10 @@ impl cosmic::Application for AppModel {
             cpu_usage: 0.0,
             memory_used: 0,
             memory_total,
+            gpu_name: String::new(),
+            gpu_usage: 0.0,
+            gpu_memory_used: 0,
+            gpu_memory_total: 0,
             process_sort: ProcessSort::Cpu,
             hostname,
             username,
@@ -133,6 +146,8 @@ impl cosmic::Application for AppModel {
             shell: shell_name,
             de_wm,
         };
+
+        app.refresh_gpu_info();
 
         let command = app.update_title();
         (app, command)
@@ -158,6 +173,7 @@ impl cosmic::Application for AppModel {
             Page::Processes => self.processes_view(),
             Page::Network => self.network_view(),
             Page::Disks => self.disks_view(),
+            Page::Gpu => self.gpu_view(),
         };
 
         widget::container(content)
@@ -192,6 +208,7 @@ impl cosmic::Application for AppModel {
                 self.memory_used = self.sys.used_memory();
                 self.memory_total = self.sys.total_memory();
                 self.uptime = System::uptime();
+                self.refresh_gpu_info();
             }
             Message::SortProcesses(sort) => {
                 self.process_sort = sort;
@@ -294,6 +311,7 @@ impl AppModel {
             widget::text::body("Shell").into(),
             widget::text::body("DE/WM").into(),
             widget::text::body("CPU").into(),
+            widget::text::body("GPU").into(),
             widget::text::body("Memory").into(),
             widget::text::body("Disk").into(),
         ]).spacing(8);
@@ -307,6 +325,7 @@ impl AppModel {
             widget::text::body(self.shell.clone()).into(),
             widget::text::body(self.de_wm.clone()).into(),
             widget::text::body(cpu_name.clone()).into(),
+            widget::text::body(self.gpu_name.clone()).into(),
             widget::text::body(format!("{:.1} / {:.1} GB ({:.0}%)", memory_used_gb, memory_total_gb, memory_percent)).into(),
             widget::text::body(format!("{:.0} / {:.0} GB ({:.0}%)", disk_used_gb, disk_total_gb, disk_percent)).into(),
         ]).spacing(8);
@@ -332,6 +351,15 @@ impl AppModel {
                         widget::row::with_children(vec![
                             widget::progress_bar(0.0..=100.0, self.cpu_usage).into(),
                             widget::text::body(format!(" {:.0}%", self.cpu_usage)).into(),
+                        ]).spacing(8)
+                    ),
+            )
+            .add(
+                cosmic::widget::settings::item::builder("GPU")
+                    .control(
+                        widget::row::with_children(vec![
+                            widget::progress_bar(0.0..=100.0, self.gpu_usage).into(),
+                            widget::text::body(format!(" {:.0}%", self.gpu_usage)).into(),
                         ]).spacing(8)
                     ),
             )
@@ -532,7 +560,7 @@ impl AppModel {
 
         let name_col_header = widget::button::standard("Name")
             .on_press(Message::SortProcesses(ProcessSort::Alphabetical))
-            .width(Length::Fill);
+            .width(Length::Fixed(250.0));
 
         let cpu_col_header = widget::button::standard("CPU %")
             .on_press(Message::SortProcesses(ProcessSort::Cpu))
@@ -569,9 +597,9 @@ impl AppModel {
             );
         }
 
-        let name_col = widget::column::with_children(name_items).spacing(8);
+        let name_col = widget::column::with_children(name_items).spacing(8).width(Length::Fixed(250.0));
 
-        let cpu_col = widget::column::with_children(cpu_items).spacing(8).width(Length::Fill);
+        let cpu_col = widget::column::with_children(cpu_items).spacing(8).width(Length::Fixed(80.0));
 
         let mem_col = widget::column::with_children(mem_items).spacing(8).width(Length::Fill);
 
@@ -724,6 +752,86 @@ impl AppModel {
             .spacing(space_s)
             .into()
     }
+
+    fn refresh_gpu_info(&mut self) {
+        let output = std::process::Command::new("nvidia-smi")
+            .arg("--query-gpu=name,utilization.gpu,memory.used,memory.total")
+            .arg("--format=csv,noheader,nounits")
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(line) = stdout.lines().next() {
+                    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                    if parts.len() >= 4 {
+                        self.gpu_name = parts[0].to_string();
+                        self.gpu_usage = parts[1].parse().unwrap_or(0.0);
+                        self.gpu_memory_used = parts[2].parse().unwrap_or(0);
+                        self.gpu_memory_total = parts[3].parse().unwrap_or(0);
+                    }
+                }
+            }
+        }
+
+        if self.gpu_name.is_empty() {
+            self.gpu_name = "No GPU detected".to_string();
+        }
+    }
+
+    fn gpu_view(&self) -> Element<'_, Message> {
+        let space_s: u16 = 16;
+
+        let header = widget::text::title1("GPU Information");
+
+        let info_section = cosmic::widget::settings::section()
+            .title("Details")
+            .add(
+                cosmic::widget::settings::item::builder("Name")
+                    .control(widget::text::body(self.gpu_name.clone())),
+            );
+
+        let gpu_memory_percent = if self.gpu_memory_total > 0 {
+            (self.gpu_memory_used as f64 / self.gpu_memory_total as f64 * 100.0) as f32
+        } else {
+            0.0
+        };
+
+        let usage_bar = widget::progress_bar(0.0..=100.0, self.gpu_usage);
+        let memory_bar = widget::progress_bar(0.0..=100.0, gpu_memory_percent);
+
+        let usage_section = cosmic::widget::settings::section()
+            .title("Usage")
+            .add(
+                cosmic::widget::settings::item::builder("GPU")
+                    .control(
+                        widget::row::with_children(vec![
+                            usage_bar.into(),
+                            widget::text::body(format!(" {:.1}%", self.gpu_usage)).into(),
+                        ]).spacing(8)
+                    ),
+            )
+            .add(
+                cosmic::widget::settings::item::builder("Memory")
+                    .control(
+                        widget::row::with_children(vec![
+                            memory_bar.into(),
+                            widget::text::body(format!(" {:.0}%", gpu_memory_percent)).into(),
+                        ]).spacing(8)
+                    ),
+            )
+            .add(
+                cosmic::widget::settings::item::builder("Memory Used")
+                    .control(widget::text::body(format!("{} / {} MB", self.gpu_memory_used, self.gpu_memory_total))),
+            );
+
+        widget::column::with_capacity(3)
+            .push(header)
+            .push(info_section)
+            .push(usage_section)
+            .spacing(space_s)
+            .into()
+    }
 }
 
 pub enum Page {
@@ -733,4 +841,5 @@ pub enum Page {
     Processes,
     Network,
     Disks,
+    Gpu,
 }
