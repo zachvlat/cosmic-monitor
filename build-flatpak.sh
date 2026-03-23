@@ -3,7 +3,9 @@ set -e
 cd "$(dirname "$0")"
 
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || true
-flatpak install -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 || true
+
+RUNTIME_VERSION="24.08"
+flatpak install -y flathub "org.freedesktop.Platform/x86_64/${RUNTIME_VERSION}" "org.freedesktop.Sdk/x86_64/${RUNTIME_VERSION}" || true
 
 rm -rf .flatpak-builder/repo /tmp/cosmic-monitor-build /tmp/build-dir
 
@@ -12,7 +14,7 @@ cargo build --release
 mkdir -p .flatpak-builder/repo
 ostree --repo=.flatpak-builder/repo init --mode=archive
 
-flatpak build-init /tmp/build-dir com.zachvlat.cosmic-monitor org.freedesktop.Platform org.freedesktop.Sdk
+flatpak build-init /tmp/build-dir com.zachvlat.cosmic-monitor org.freedesktop.Platform/x86_64/${RUNTIME_VERSION} org.freedesktop.Sdk/x86_64/${RUNTIME_VERSION}
 mkdir -p /tmp/build-dir/files/{bin,share/applications,share/metainfo,share/icons/hicolor/scalable/apps}
 cp target/release/cosmic-monitor /tmp/build-dir/files/bin/
 cp resources/app.desktop /tmp/build-dir/files/share/applications/com.zachvlat.cosmic-monitor.desktop

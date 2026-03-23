@@ -6,13 +6,17 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
 command: cosmic-monitor
 finish-args:
+  - --device=dri
   - --share=ipc
+  - --share=network
   - --socket=fallback-x11
   - --socket=wayland
-  - --device=dri
-  - --share=network
-  - --filesystem=host
-  - --filesystem=/proc:ro
+  - --filesystem=host:ro
+  - --filesystem=/run/host/usr/bin:ro
+  - --filesystem=/run/host/usr/sbin:ro
+  - --filesystem=/run/host/bin:ro
+  - --filesystem=/run/host/sbin:ro
+  - --env=PATH=/run/host/usr/bin:/run/host/bin:/usr/bin:/bin
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:

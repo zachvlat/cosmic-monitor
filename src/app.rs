@@ -24,11 +24,12 @@ pub struct AppModel {
     gpu_memory_total: u64,
     process_sort: ProcessSort,
     hostname: String,
-    username: String,
     os_name: String,
     kernel: String,
     uptime: u64,
+    packages: u32,
     shell: String,
+    resolution: String,
     de_wm: String,
 }
 
@@ -75,12 +76,12 @@ impl cosmic::Application for AppModel {
         nav.insert()
             .text("CPU")
             .data::<Page>(Page::Cpu)
-            .icon(icon::from_name("cpu-symbolic"));
+            .icon(icon::from_name("computer-symbolic"));
 
         nav.insert()
             .text("GPU")
             .data::<Page>(Page::Gpu)
-            .icon(icon::from_name("video-card-symbolic"));
+            .icon(icon::from_name("video-display-symbolic"));
 
         nav.insert()
             .text("Memory")
@@ -109,7 +110,6 @@ impl cosmic::Application for AppModel {
         let memory_total = sys.total_memory();
 
         let hostname = System::host_name().unwrap_or_else(|| "Unknown".to_string());
-        let username = std::env::var("USER").unwrap_or_else(|_| "Unknown".to_string());
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
         let shell_name = std::path::Path::new(&shell)
             .file_name()
@@ -123,6 +123,10 @@ impl cosmic::Application for AppModel {
         let uptime = System::uptime();
 
         let os_name = Self::get_os_name();
+
+        let packages = Self::get_packages();
+
+        let resolution = Self::get_resolution();
 
         let mut app = AppModel {
             core,
@@ -139,11 +143,12 @@ impl cosmic::Application for AppModel {
             gpu_memory_total: 0,
             process_sort: ProcessSort::Cpu,
             hostname,
-            username,
             os_name,
             kernel,
             uptime,
+            packages,
             shell: shell_name,
+            resolution,
             de_wm,
         };
 
@@ -176,10 +181,12 @@ impl cosmic::Application for AppModel {
             Page::Gpu => self.gpu_view(),
         };
 
-        widget::container(content)
+        widget::scrollable(widget::container(content)
             .width(Length::Fill)
             .height(Length::Fill)
-            .padding(16)
+            .padding(16))
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
     }
 
@@ -228,18 +235,108 @@ impl cosmic::Application for AppModel {
 
 impl AppModel {
     fn get_os_name() -> String {
-        std::fs::read_to_string("/etc/os-release")
-            .ok()
-            .and_then(|content| {
-                content
-                    .lines()
-                    .find(|line| line.starts_with("PRETTY_NAME="))
-                    .map(|line| {
-                        let name = line.trim_start_matches("PRETTY_NAME=");
-                        name.trim_matches('"').to_string()
-                    })
-            })
-            .unwrap_or_else(|| "Linux".to_string())
+        for path in &["/run/host/etc/os-release", "/etc/os-release"] {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                if let Some(line) = content.lines().find(|line| line.starts_with("PRETTY_NAME=")) {
+                    let name = line.trim_start_matches("PRETTY_NAME=");
+                    return name.trim_matches('"').to_string();
+                }
+            }
+        }
+        System::name().unwrap_or_else(|| "Linux".to_string())
+    }
+
+    fn get_packages() -> u32 {
+        let paths = [
+            "/run/host/var/lib/dpkg/info",
+            "/var/lib/dpkg/info",
+        ];
+        
+        for path in &paths {
+            let dpkg_info = std::path::Path::new(path);
+            if dpkg_info.exists() {
+                if let Ok(entries) = std::fs::read_dir(dpkg_info) {
+                    let count = entries.flatten()
+                        .filter(|e| e.path().extension().map(|ext| ext == "list").unwrap_or(false))
+                        .count();
+                    if count > 0 {
+                        return count as u32;
+                    }
+                }
+            }
+        }
+        
+        if let Ok(output) = std::process::Command::new("dpkg")
+            .arg("-l")
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                return stdout.lines().count().saturating_sub(1) as u32;
+            }
+        }
+        
+        if let Ok(output) = std::process::Command::new("rpm")
+            .arg("-qa")
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                return stdout.lines().count() as u32;
+            }
+        }
+        
+        0
+    }
+
+    fn get_resolution() -> String {
+        if std::env::var("WAYLAND_DISPLAY").is_ok() {
+            if let Ok(output) = std::process::Command::new("wlr-randr")
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        if let Some(first) = line.chars().next() {
+                            if first.is_ascii_digit() {
+                                let parts: Vec<&str> = line.split_whitespace().collect();
+                                if !parts.is_empty() {
+                                    let res = parts[0];
+                                    if res.contains('x') && res.chars().all(|c| c.is_numeric() || c == 'x') {
+                                        return res.to_string();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return "Wayland".to_string();
+        }
+        
+        if std::env::var("DISPLAY").is_ok() {
+            if let Ok(output) = std::process::Command::new("xrandr")
+                .arg("--current")
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        if line.contains('*') {
+                            for part in line.split_whitespace() {
+                                let clean = part.replace("*", "").replace("+", "");
+                                if clean.contains('x') && clean.chars().all(|c| c.is_numeric() || c == 'x') {
+                                    return clean;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return "X11".to_string();
+        }
+        
+        "Unknown".to_string()
     }
 
     fn format_uptime(seconds: u64) -> String {
@@ -286,48 +383,34 @@ impl AppModel {
             0.0
         };
 
-        let mut disk_total: u64 = 0;
-        let mut disk_used: u64 = 0;
-        for disk in self.disks.iter() {
-            disk_total += disk.total_space();
-            disk_used += disk.total_space() - disk.available_space();
-        }
-        let disk_total_gb = disk_total as f64 / 1_073_741_824.0;
-        let disk_used_gb = disk_used as f64 / 1_073_741_824.0;
-        let disk_percent = if disk_total > 0 {
-            (disk_used as f64 / disk_total as f64 * 100.0) as f32
-        } else {
-            0.0
-        };
-
         let uptime_str = Self::format_uptime(self.uptime);
 
         let label_col = widget::column::with_children(vec![
-            widget::text::body("User").into(),
-            widget::text::body("Hostname").into(),
             widget::text::body("OS").into(),
+            widget::text::body("Host").into(),
             widget::text::body("Kernel").into(),
             widget::text::body("Uptime").into(),
+            widget::text::body("Packages").into(),
             widget::text::body("Shell").into(),
+            widget::text::body("Resolution").into(),
             widget::text::body("DE/WM").into(),
             widget::text::body("CPU").into(),
             widget::text::body("GPU").into(),
             widget::text::body("Memory").into(),
-            widget::text::body("Disk").into(),
         ]).spacing(8);
 
         let value_col = widget::column::with_children(vec![
-            widget::text::body(self.username.clone()).into(),
-            widget::text::body(self.hostname.clone()).into(),
             widget::text::body(self.os_name.clone()).into(),
+            widget::text::body(self.hostname.clone()).into(),
             widget::text::body(self.kernel.clone()).into(),
             widget::text::body(uptime_str.clone()).into(),
+            widget::text::body(self.packages.to_string()).into(),
             widget::text::body(self.shell.clone()).into(),
+            widget::text::body(self.resolution.clone()).into(),
             widget::text::body(self.de_wm.clone()).into(),
             widget::text::body(cpu_name.clone()).into(),
             widget::text::body(self.gpu_name.clone()).into(),
             widget::text::body(format!("{:.1} / {:.1} GB ({:.0}%)", memory_used_gb, memory_total_gb, memory_percent)).into(),
-            widget::text::body(format!("{:.0} / {:.0} GB ({:.0}%)", disk_used_gb, disk_total_gb, disk_percent)).into(),
         ]).spacing(8);
 
         let info_row = widget::row::with_capacity(2)
@@ -371,15 +454,6 @@ impl AppModel {
                             widget::text::body(format!(" {:.0}%", memory_percent)).into(),
                         ]).spacing(8)
                     ),
-            )
-            .add(
-                cosmic::widget::settings::item::builder("Disk")
-                    .control(
-                        widget::row::with_children(vec![
-                            widget::progress_bar(0.0..=100.0, disk_percent).into(),
-                            widget::text::body(format!(" {:.0}%", disk_percent)).into(),
-                        ]).spacing(8)
-                    ),
             );
 
         let processes_section = cosmic::widget::settings::section()
@@ -393,7 +467,7 @@ impl AppModel {
             .push(widget::text::title1("System Information"))
             .push(
                 cosmic::widget::settings::section()
-                    .title(format!("{}@{}", self.username, self.hostname))
+                    .title(format!("{}", self.hostname))
                     .add(info_row)
             )
             .push(usage_section)
@@ -769,6 +843,72 @@ impl AppModel {
                         self.gpu_usage = parts[1].parse().unwrap_or(0.0);
                         self.gpu_memory_used = parts[2].parse().unwrap_or(0);
                         self.gpu_memory_total = parts[3].parse().unwrap_or(0);
+                    }
+                }
+            }
+        }
+
+        if self.gpu_name.is_empty() {
+            if let Ok(output) = std::process::Command::new("rocm-smi")
+                .arg("--showproductname")
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines().skip(1) {
+                        if !line.is_empty() {
+                            self.gpu_name = line.trim().to_string();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if self.gpu_name.is_empty() {
+            let paths = [
+                "/run/host/sys/class/drm",
+                "/sys/class/drm",
+            ];
+            
+            for base_path in &paths {
+                let sys_class_drm = std::path::Path::new(base_path);
+                if sys_class_drm.exists() {
+                    if let Ok(cards) = std::fs::read_dir(sys_class_drm) {
+                        for card in cards.flatten() {
+                            let device_path = card.path().join("device");
+                            if device_path.exists() {
+                                if let Ok(name) = std::fs::read_to_string(device_path.join("name")) {
+                                    let name_lower = name.to_lowercase();
+                                    if name_lower.contains("amd") || name_lower.contains("radeon") || 
+                                       name_lower.contains("intel") || name_lower.contains("nvidia") ||
+                                       name_lower.contains("gpu") || name_lower.contains("vga") {
+                                        self.gpu_name = name.trim().to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !self.gpu_name.is_empty() {
+                    break;
+                }
+            }
+        }
+
+        if self.gpu_name.is_empty() {
+            if let Ok(output) = std::process::Command::new("lspci")
+                .args(["-vmm", "-d", "::0300"])
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        if line.starts_with("Device:") {
+                            self.gpu_name = line.trim_start_matches("Device:").trim().to_string();
+                            break;
+                        }
                     }
                 }
             }
