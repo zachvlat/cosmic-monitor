@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-v3
 
 use cosmic::app::context_drawer;
+use cosmic::iced::clipboard;
+use cosmic::iced::time;
 use cosmic::iced::Length;
 use cosmic::iced::Subscription;
 use cosmic::widget::{self, icon, nav_bar};
-use cosmic::{iced_futures, prelude::*};
-use cosmic::iced::futures::SinkExt;
+use cosmic::prelude::*;
 use std::time::Duration;
 use sysinfo::{Disks, Networks, System};
 
@@ -44,6 +45,7 @@ pub enum ProcessSort {
 pub enum Message {
     RefreshSystemInfo,
     SortProcesses(ProcessSort),
+    CopySystemInfo,
 }
 
 impl cosmic::Application for AppModel {
@@ -191,15 +193,7 @@ impl cosmic::Application for AppModel {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        Subscription::run(|| {
-            iced_futures::stream::channel(1, |mut emitter: iced_futures::futures::channel::mpsc::Sender<Message>| async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(2));
-                loop {
-                    interval.tick().await;
-                    let _ = emitter.send(Message::RefreshSystemInfo).await;
-                }
-            })
-        })
+        time::every(Duration::from_secs(2)).map(|_| Message::RefreshSystemInfo)
     }
 
     fn update(
@@ -219,6 +213,10 @@ impl cosmic::Application for AppModel {
             }
             Message::SortProcesses(sort) => {
                 self.process_sort = sort;
+            }
+            Message::CopySystemInfo => {
+                let info = self.format_system_info();
+                return clipboard::write(info).into();
             }
         }
         Task::none()
@@ -368,13 +366,10 @@ impl AppModel {
         }
     }
 
-    fn overview_view(&self) -> Element<'_, Message> {
-        let space_s: u16 = 16;
-
+    fn format_system_info(&self) -> String {
         let cpu_name = self.sys.cpus().first()
-            .map(|c| c.brand().to_string())
-            .unwrap_or_else(|| "Unknown CPU".to_string());
-
+            .map(|c| c.brand())
+            .unwrap_or("Unknown CPU");
         let memory_used_gb = self.memory_used as f64 / 1_073_741_824.0;
         let memory_total_gb = self.memory_total as f64 / 1_073_741_824.0;
         let memory_percent = if self.memory_total > 0 {
@@ -382,99 +377,148 @@ impl AppModel {
         } else {
             0.0
         };
-
         let uptime_str = Self::format_uptime(self.uptime);
 
-        let label_col = widget::column::with_children(vec![
-            widget::text::body("OS").into(),
-            widget::text::body("Host").into(),
-            widget::text::body("Kernel").into(),
-            widget::text::body("Uptime").into(),
-            widget::text::body("Packages").into(),
-            widget::text::body("Shell").into(),
-            widget::text::body("Resolution").into(),
-            widget::text::body("DE/WM").into(),
-            widget::text::body("CPU").into(),
-            widget::text::body("GPU").into(),
-            widget::text::body("Memory").into(),
-        ]).spacing(8);
-
-        let value_col = widget::column::with_children(vec![
-            widget::text::body(self.os_name.clone()).into(),
-            widget::text::body(self.hostname.clone()).into(),
-            widget::text::body(self.kernel.clone()).into(),
-            widget::text::body(uptime_str.clone()).into(),
-            widget::text::body(self.packages.to_string()).into(),
-            widget::text::body(self.shell.clone()).into(),
-            widget::text::body(self.resolution.clone()).into(),
-            widget::text::body(self.de_wm.clone()).into(),
-            widget::text::body(cpu_name.clone()).into(),
-            widget::text::body(self.gpu_name.clone()).into(),
-            widget::text::body(format!("{:.1} / {:.1} GB ({:.0}%)", memory_used_gb, memory_total_gb, memory_percent)).into(),
-        ]).spacing(8);
-
-        let info_row = widget::row::with_capacity(2)
-            .spacing(24)
-            .push(
-                widget::container(label_col)
-                    .padding([0, 16, 0, 0])
-                    .align_y(cosmic::iced::Alignment::Start)
-            )
-            .push(
-                widget::container(value_col)
-                    .padding([0, 0, 0, 0])
-                    .align_y(cosmic::iced::Alignment::Start)
-            );
-
-        let usage_section = cosmic::widget::settings::section()
-            .title("Usage")
-            .add(
-                cosmic::widget::settings::item::builder("CPU")
-                    .control(
-                        widget::row::with_children(vec![
-                            widget::progress_bar(0.0..=100.0, self.cpu_usage).into(),
-                            widget::text::body(format!(" {:.0}%", self.cpu_usage)).into(),
-                        ]).spacing(8)
-                    ),
-            )
-            .add(
-                cosmic::widget::settings::item::builder("GPU")
-                    .control(
-                        widget::row::with_children(vec![
-                            widget::progress_bar(0.0..=100.0, self.gpu_usage).into(),
-                            widget::text::body(format!(" {:.0}%", self.gpu_usage)).into(),
-                        ]).spacing(8)
-                    ),
-            )
-            .add(
-                cosmic::widget::settings::item::builder("Memory")
-                    .control(
-                        widget::row::with_children(vec![
-                            widget::progress_bar(0.0..=100.0, memory_percent).into(),
-                            widget::text::body(format!(" {:.0}%", memory_percent)).into(),
-                        ]).spacing(8)
-                    ),
-            );
-
-        let processes_section = cosmic::widget::settings::section()
-            .title("Processes")
-            .add(
-                cosmic::widget::settings::item::builder("Total")
-                    .control(widget::text::body(format!("{}", self.sys.processes().len()))),
-            );
-
-        widget::column::with_capacity(4)
-            .push(widget::text::title1("System Information"))
-            .push(
-                cosmic::widget::settings::section()
-                    .title(format!("{}", self.hostname))
-                    .add(info_row)
-            )
-            .push(usage_section)
-            .push(processes_section)
-            .spacing(space_s)
-            .into()
+        format!(
+            "OS: {}\n\
+             Host: {}\n\
+             Kernel: {}\n\
+             Uptime: {}\n\
+             Packages: {}\n\
+             Shell: {}\n\
+             Resolution: {}\n\
+             DE/WM: {}\n\
+             CPU: {}\n\
+             GPU: {}\n\
+             Memory: {:.1} / {:.1} GB ({:.0}%)",
+            self.os_name,
+            self.hostname,
+            self.kernel,
+            uptime_str,
+            self.packages,
+            self.shell,
+            self.resolution,
+            self.de_wm,
+            cpu_name,
+            self.gpu_name,
+            memory_used_gb,
+            memory_total_gb,
+            memory_percent,
+        )
     }
+
+    fn overview_view(&self) -> Element<'_, Message> {
+    let space_s: u16 = 16;
+
+    let cpu_name = self.sys.cpus().first()
+        .map(|c| c.brand().to_string())
+        .unwrap_or_else(|| "Unknown CPU".to_string());
+
+    let memory_used_gb = self.memory_used as f64 / 1_073_741_824.0;
+    let memory_total_gb = self.memory_total as f64 / 1_073_741_824.0;
+    let memory_percent = if self.memory_total > 0 {
+        (self.memory_used as f64 / self.memory_total as f64 * 100.0) as f32
+    } else {
+        0.0
+    };
+
+    let uptime_str = Self::format_uptime(self.uptime);
+
+    let label_col = widget::column::with_children(vec![
+        widget::text::body("OS").into(),
+        widget::text::body("Host").into(),
+        widget::text::body("Kernel").into(),
+        widget::text::body("Uptime").into(),
+        widget::text::body("Packages").into(),
+        widget::text::body("Shell").into(),
+        widget::text::body("Resolution").into(),
+        widget::text::body("DE/WM").into(),
+        widget::text::body("CPU").into(),
+        widget::text::body("GPU").into(),
+        widget::text::body("Memory").into(),
+    ]).spacing(8);
+
+    let value_col = widget::column::with_children(vec![
+        widget::text::body(self.os_name.clone()).into(),
+        widget::text::body(self.hostname.clone()).into(),
+        widget::text::body(self.kernel.clone()).into(),
+        widget::text::body(uptime_str.clone()).into(),
+        widget::text::body(self.packages.to_string()).into(),
+        widget::text::body(self.shell.clone()).into(),
+        widget::text::body(self.resolution.clone()).into(),
+        widget::text::body(self.de_wm.clone()).into(),
+        widget::text::body(cpu_name.clone()).into(),
+        widget::text::body(self.gpu_name.clone()).into(),
+        widget::text::body(format!("{:.1} / {:.1} GB ({:.0}%)", memory_used_gb, memory_total_gb, memory_percent)).into(),
+    ]).spacing(8);
+
+    let info_row = widget::row::with_capacity(2)
+        .spacing(24)
+        .push(
+            widget::container(label_col)
+                .padding([0, 16, 0, 0])
+                .align_y(cosmic::iced::Alignment::Start)
+        )
+        .push(
+            widget::container(value_col)
+                .padding([0, 0, 0, 0])
+                .align_y(cosmic::iced::Alignment::Start)
+        );
+
+    let copy_button = widget::button::standard("Copy System Info")
+        .on_press(Message::CopySystemInfo)
+        .padding([8, 16]);
+
+    let usage_section = cosmic::widget::settings::section()
+        .title("Usage")
+        .add(
+            cosmic::widget::settings::item::builder("CPU")
+                .control(
+                    widget::row::with_children(vec![
+                        widget::progress_bar(0.0..=100.0, self.cpu_usage).into(),
+                        widget::text::body(format!(" {:.0}%", self.cpu_usage)).into(),
+                    ]).spacing(8)
+                ),
+        )
+        .add(
+            cosmic::widget::settings::item::builder("GPU")
+                .control(
+                    widget::row::with_children(vec![
+                        widget::progress_bar(0.0..=100.0, self.gpu_usage).into(),
+                        widget::text::body(format!(" {:.0}%", self.gpu_usage)).into(),
+                    ]).spacing(8)
+                ),
+        )
+        .add(
+            cosmic::widget::settings::item::builder("Memory")
+                .control(
+                    widget::row::with_children(vec![
+                        widget::progress_bar(0.0..=100.0, memory_percent).into(),
+                        widget::text::body(format!(" {:.0}%", memory_percent)).into(),
+                    ]).spacing(8)
+                ),
+        );
+
+    let processes_section = cosmic::widget::settings::section()
+        .title("Processes")
+        .add(
+            cosmic::widget::settings::item::builder("Total")
+                .control(widget::text::body(format!("{}", self.sys.processes().len()))),
+        );
+
+    widget::column::with_capacity(5)
+        .push(widget::text::title1("System Information"))
+        .push(
+            cosmic::widget::settings::section()
+                .title(format!("{}", self.hostname))
+                .add(info_row)
+        )
+        .push(copy_button)   // Button placed right after the info section
+        .push(usage_section)
+        .push(processes_section)
+        .spacing(space_s)
+        .into()
+}
 
     fn cpu_view(&self) -> Element<'_, Message> {
         let space_s: u16 = 16;
@@ -632,21 +676,28 @@ impl AppModel {
             ProcessSort::Alphabetical => "Name",
         };
 
+        // Header row with sort buttons (outside scrollable area)
         let name_col_header = widget::button::standard("Name")
             .on_press(Message::SortProcesses(ProcessSort::Alphabetical))
             .width(Length::Fixed(250.0));
 
         let cpu_col_header = widget::button::standard("CPU %")
             .on_press(Message::SortProcesses(ProcessSort::Cpu))
-            .width(Length::Fill);
+            .width(Length::Fixed(80.0));
 
         let mem_col_header = widget::button::standard("Memory")
             .on_press(Message::SortProcesses(ProcessSort::Memory))
             .width(Length::Fill);
 
-        let mut name_items: Vec<Element<_>> = vec![name_col_header.into()];
-        let mut cpu_items: Vec<Element<_>> = vec![cpu_col_header.into()];
-        let mut mem_items: Vec<Element<_>> = vec![mem_col_header.into()];
+        let header_row = widget::row::with_capacity(3)
+            .spacing(16)
+            .push(name_col_header)
+            .push(cpu_col_header)
+            .push(mem_col_header);
+
+        let mut name_items: Vec<Element<_>> = Vec::new();
+        let mut cpu_items: Vec<Element<_>> = Vec::new();
+        let mut mem_items: Vec<Element<_>> = Vec::new();
 
         for (_pid, process) in &processes {
             let name: String = process.name().to_string_lossy().chars().take(25).collect();
@@ -672,25 +723,22 @@ impl AppModel {
         }
 
         let name_col = widget::column::with_children(name_items).spacing(8).width(Length::Fixed(250.0));
-
         let cpu_col = widget::column::with_children(cpu_items).spacing(8).width(Length::Fixed(80.0));
-
         let mem_col = widget::column::with_children(mem_items).spacing(8).width(Length::Fill);
 
-        let scrollable_content: Element<_> = widget::row::with_capacity(3)
+        let table_content = widget::row::with_capacity(3)
             .spacing(16)
             .push(name_col)
             .push(cpu_col)
-            .push(mem_col)
-            .into();
+            .push(mem_col);
 
-        let scrollable = widget::scrollable(scrollable_content)
-            .height(Length::Fill);
+        let scrollable_content = widget::scrollable(table_content).height(Length::Fill);
 
-        widget::column::with_capacity(3)
-            .push(widget::text::title1(format!("Top Processes")))
+        widget::column::with_capacity(4)
+            .push(widget::text::title1("Top Processes"))
             .push(widget::text::body(format!("Showing {} of {} processes (sorted by {})", count, self.sys.processes().len(), sort_label)))
-            .push(scrollable)
+            .push(header_row)
+            .push(scrollable_content)
             .spacing(12)
             .into()
     }
@@ -940,6 +988,12 @@ impl AppModel {
         let usage_bar = widget::progress_bar(0.0..=100.0, self.gpu_usage);
         let memory_bar = widget::progress_bar(0.0..=100.0, gpu_memory_percent);
 
+        let memory_display = if self.gpu_memory_total > 0 {
+            format!("{} / {} MB", self.gpu_memory_used, self.gpu_memory_total)
+        } else {
+            "N/A".to_string()
+        };
+
         let usage_section = cosmic::widget::settings::section()
             .title("Usage")
             .add(
@@ -962,7 +1016,7 @@ impl AppModel {
             )
             .add(
                 cosmic::widget::settings::item::builder("Memory Used")
-                    .control(widget::text::body(format!("{} / {} MB", self.gpu_memory_used, self.gpu_memory_total))),
+                    .control(widget::text::body(memory_display)),
             );
 
         widget::column::with_capacity(3)
