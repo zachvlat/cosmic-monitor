@@ -17,6 +17,8 @@ finish-args:
   - --filesystem=/run/host/bin:ro
   - --filesystem=/run/host/sbin:ro
   - --env=PATH=/run/host/usr/bin:/run/host/bin:/usr/bin:/bin
+  - --talk-name=org.freedesktop.Flatpak
+  - --system-talk-name=org.freedesktop.PackageKit
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
