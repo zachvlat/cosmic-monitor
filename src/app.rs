@@ -19,10 +19,10 @@ pub struct AppModel {
     cpu_usage: f32,
     memory_used: u64,
     memory_total: u64,
-    // gpu_name: String,
-    // gpu_usage: f32,
-    // gpu_memory_used: u64,
-    // gpu_memory_total: u64,
+    gpu_name: String,
+    gpu_usage: f32,
+    gpu_memory_used: u64,
+    gpu_memory_total: u64,
     process_sort: ProcessSort,
     hostname: String,
     os_name: String,
@@ -137,10 +137,10 @@ impl cosmic::Application for AppModel {
             cpu_usage: 0.0,
             memory_used: 0,
             memory_total,
-            // gpu_name: String::new(),
-            // gpu_usage: 0.0,
-            // gpu_memory_used: 0,
-            // gpu_memory_total: 0,
+            gpu_name: String::new(),
+            gpu_usage: 0.0,
+            gpu_memory_used: 0,
+            gpu_memory_total: 0,
             process_sort: ProcessSort::Cpu,
             hostname,
             os_name,
@@ -153,7 +153,7 @@ impl cosmic::Application for AppModel {
             de_wm,
         };
 
-        // app.refresh_gpu_info();
+        app.refresh_gpu_info();
         
         // Fetch package and flatpak counts asynchronously
         let task = Task::future(async {
@@ -185,6 +185,7 @@ impl cosmic::Application for AppModel {
         let content: Element<_> = match self.nav.active_data::<Page>().unwrap() {
             Page::Overview => self.overview_view(),
             Page::Cpu => self.cpu_view(),
+            // Page::Gpu => self.gpu_view(),
             Page::Memory => self.memory_view(),
             Page::Processes => self.processes_view(),
             Page::Network => self.network_view(),
@@ -216,7 +217,7 @@ impl cosmic::Application for AppModel {
                 self.memory_used = self.sys.used_memory();
                 self.memory_total = self.sys.total_memory();
                 self.uptime = System::uptime();
-                // self.refresh_gpu_info();
+                self.refresh_gpu_info();
             }
             Message::SortProcesses(sort) => {
                 self.process_sort = sort;
@@ -437,7 +438,7 @@ impl AppModel {
             widget::text::body("Window Server").into(),
             widget::text::body("DE/WM").into(),
             widget::text::body("CPU").into(),
-            // widget::text::body("GPU").into(),
+            widget::text::body("GPU").into(),
             widget::text::body("Memory").into(),
         ])
         .spacing(8);
@@ -453,7 +454,7 @@ impl AppModel {
             widget::text::body(self.resolution.clone()).into(),
             widget::text::body(self.de_wm.clone()).into(),
             widget::text::body(cpu_name.clone()).into(),
-            // widget::text::body(self.gpu_name.clone()).into(),
+            widget::text::body(self.gpu_name.clone()).into(),
             widget::text::body(format!(
                 "{:.1} / {:.1} GB ({:.0}%)",
                 memory_used_gb, memory_total_gb, memory_percent
@@ -971,162 +972,37 @@ impl AppModel {
             .into()
     }
 
-    // fn refresh_gpu_info(&mut self) {
-    //     let output = std::process::Command::new("nvidia-smi")
-    //         .arg("--query-gpu=name,utilization.gpu,memory.used,memory.total")
-    //         .arg("--format=csv,noheader,nounits")
-    //         .output();
+    fn refresh_gpu_info(&mut self) {
+        let output = std::process::Command::new("nvidia-smi")
+            .arg("--query-gpu=name,utilization.gpu,memory.used,memory.total")
+            .arg("--format=csv,noheader,nounits")
+            .output();
 
-    //     if let Ok(output) = output {
-    //         if output.status.success() {
-    //             let stdout = String::from_utf8_lossy(&output.stdout);
-    //             if let Some(line) = stdout.lines().next() {
-    //                 let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-    //                 if parts.len() >= 4 {
-    //                     self.gpu_name = parts[0].to_string();
-    //                     self.gpu_usage = parts[1].parse().unwrap_or(0.0);
-    //                     self.gpu_memory_used = parts[2].parse().unwrap_or(0);
-    //                     self.gpu_memory_total = parts[3].parse().unwrap_or(0);
-    //                 }
-    //             }
-    //         }
-    //     }
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(line) = stdout.lines().next() {
+                    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                    if parts.len() >= 4 {
+                        self.gpu_name = parts[0].to_string();
+                        self.gpu_usage = parts[1].parse().unwrap_or(0.0);
+                        self.gpu_memory_used = parts[2].parse().unwrap_or(0);
+                        self.gpu_memory_total = parts[3].parse().unwrap_or(0);
+                        return;
+                    }
+                }
+            }
+        }
 
-    //     if self.gpu_name.is_empty() {
-    //         if let Ok(output) = std::process::Command::new("rocm-smi")
-    //             .arg("--showproductname")
-    //             .output()
-    //         {
-    //             if output.status.success() {
-    //                 let stdout = String::from_utf8_lossy(&output.stdout);
-    //                 for line in stdout.lines().skip(1) {
-    //                     if !line.is_empty() {
-    //                         self.gpu_name = line.trim().to_string();
-    //                         break;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     if self.gpu_name.is_empty() {
-    //         let paths = ["/run/host/sys/class/drm", "/sys/class/drm"];
-
-    //         for base_path in &paths {
-    //             let sys_class_drm = std::path::Path::new(base_path);
-    //             if sys_class_drm.exists() {
-    //                 if let Ok(cards) = std::fs::read_dir(sys_class_drm) {
-    //                     for card in cards.flatten() {
-    //                         let device_path = card.path().join("device");
-    //                         if device_path.exists() {
-    //                             if let Ok(name) = std::fs::read_to_string(device_path.join("name"))
-    //                             {
-    //                                 let name_lower = name.to_lowercase();
-    //                                 if name_lower.contains("amd")
-    //                                     || name_lower.contains("radeon")
-    //                                     || name_lower.contains("intel")
-    //                                     || name_lower.contains("nvidia")
-    //                                     || name_lower.contains("gpu")
-    //                                     || name_lower.contains("vga")
-    //                                 {
-    //                                     self.gpu_name = name.trim().to_string();
-    //                                     break;
-    //                                 }
-    //                             }
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //             if !self.gpu_name.is_empty() {
-    //                 break;
-    //             }
-    //         }
-    //     }
-
-    //     if self.gpu_name.is_empty() {
-    //         if let Ok(output) = std::process::Command::new("lspci")
-    //             .args(["-vmm", "-d", "::0300"])
-    //             .output()
-    //         {
-    //             if output.status.success() {
-    //                 let stdout = String::from_utf8_lossy(&output.stdout);
-    //                 for line in stdout.lines() {
-    //                     if line.starts_with("Device:") {
-    //                         self.gpu_name = line.trim_start_matches("Device:").trim().to_string();
-    //                         break;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     if self.gpu_name.is_empty() {
-    //         self.gpu_name = "No GPU detected".to_string();
-    //     }
-    // }
-
-    // fn gpu_view(&self) -> Element<'_, Message> {
-    //     let space_s: u16 = 16;
-
-    //     let header = widget::text::title1("GPU Information");
-
-    //     let info_section = cosmic::widget::settings::section().title("Details").add(
-    //         cosmic::widget::settings::item::builder("Name")
-    //             .control(widget::text::body(self.gpu_name.clone())),
-    //     );
-
-    //     let gpu_memory_percent = if self.gpu_memory_total > 0 {
-    //         (self.gpu_memory_used as f64 / self.gpu_memory_total as f64 * 100.0) as f32
-    //     } else {
-    //         0.0
-    //     };
-
-    //     let usage_bar = widget::progress_bar(0.0..=100.0, self.gpu_usage);
-    //     let memory_bar = widget::progress_bar(0.0..=100.0, gpu_memory_percent);
-
-    //     let memory_display = if self.gpu_memory_total > 0 {
-    //         format!("{} / {} MB", self.gpu_memory_used, self.gpu_memory_total)
-    //     } else {
-    //         "N/A".to_string()
-    //     };
-
-    //     let usage_section = cosmic::widget::settings::section()
-    //         .title("Usage")
-    //         .add(
-    //             cosmic::widget::settings::item::builder("GPU").control(
-    //                 widget::row::with_children(vec![
-    //                     usage_bar.into(),
-    //                     widget::text::body(format!(" {:.1}%", self.gpu_usage)).into(),
-    //                 ])
-    //                 .spacing(8),
-    //             ),
-    //         )
-    //         .add(
-    //             cosmic::widget::settings::item::builder("Memory").control(
-    //                 widget::row::with_children(vec![
-    //                     memory_bar.into(),
-    //                     widget::text::body(format!(" {:.0}%", gpu_memory_percent)).into(),
-    //                 ])
-    //                 .spacing(8),
-    //             ),
-    //         )
-    //         .add(
-    //             cosmic::widget::settings::item::builder("Memory Used")
-    //                 .control(widget::text::body(memory_display)),
-    //         );
-
-    //     widget::column::with_capacity(3)
-    //         .push(header)
-    //         .push(info_section)
-    //         .push(usage_section)
-    //         .spacing(space_s)
-    //         .into()
-    // }
+        if self.gpu_name.is_empty() {
+            self.gpu_name = "No GPU detected".to_string();
+        }
+    }
 }
-
 pub enum Page {
     Overview,
     Cpu,
+    // Gpu,
     Memory,
     Processes,
     Network,
