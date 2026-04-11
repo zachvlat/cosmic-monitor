@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=Cosmic Monitor
+Name=Cosmicfetch
 Comment=Monitor system resources
 Type=Application
-Icon=com.zachvlat.cosmic-monitor
-Exec=cosmic-monitor
+Icon=com.zachvlat.cosmicfetch
+Exec=cosmicfetch
 Terminal=false
 StartupNotify=true
 Categories=System;Monitor;

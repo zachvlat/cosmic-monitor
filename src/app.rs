@@ -54,7 +54,7 @@ impl cosmic::Application for AppModel {
     type Flags = ();
     type Message = Message;
 
-    const APP_ID: &'static str = "com.zachvlat.cosmic-monitor";
+    const APP_ID: &'static str = "com.zachvlat.cosmicfetch";
 
     fn core(&self) -> &cosmic::Core {
         &self.core
@@ -510,12 +510,12 @@ impl AppModel {
                 ),
             );
 
-        let processes_section = cosmic::widget::settings::section().title("Processes").add(
-            cosmic::widget::settings::item::builder("Total").control(widget::text::body(format!(
-                "{}",
-                self.sys.processes().len()
-            ))),
-        );
+        // let processes_section = cosmic::widget::settings::section().title("Processes").add(
+        //     cosmic::widget::settings::item::builder("Total").control(widget::text::body(format!(
+        //         "{}",
+        //         self.sys.processes().len()
+        //     ))),
+        // );
 
         widget::column::with_capacity(5)
             .push(widget::text::title1("System Information"))
@@ -526,7 +526,7 @@ impl AppModel {
             )
             .push(copy_button)
             .push(usage_section)
-            .push(processes_section)
+            //.push(processes_section)
             .spacing(space_s)
             .into()
     }
@@ -973,6 +973,7 @@ impl AppModel {
     }
 
     fn refresh_gpu_info(&mut self) {
+        // Try NVIDIA first
         let output = std::process::Command::new("nvidia-smi")
             .arg("--query-gpu=name,utilization.gpu,memory.used,memory.total")
             .arg("--format=csv,noheader,nounits")
@@ -994,8 +995,104 @@ impl AppModel {
             }
         }
 
+        // Try AMD (rocm-smi)
+        let output = std::process::Command::new("rocm-smi")
+            .arg("--querygpu")
+            .arg("-o")
+            .arg("name,utilization.gpu,memory.used,memory.total")
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(line) = stdout.lines().skip(1).next() {
+                    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                    if parts.len() >= 4 {
+                        self.gpu_name = parts[0].to_string();
+                        self.gpu_usage = parts[1].parse().unwrap_or(0.0);
+                        self.gpu_memory_used = parts[2].parse::<u64>().unwrap_or(0) / 1024;
+                        self.gpu_memory_total = parts[3].parse::<u64>().unwrap_or(0) / 1024;
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Try reading from /sys/class/drm for AMD GPU
+        if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                if name.to_string_lossy().starts_with("card") && !name.to_string_lossy().contains('-') {
+                    let device_path = entry.path().join("device");
+                    if let Ok(uevent) = std::fs::read_to_string(device_path.join("uevent")) {
+                        let mut gpu_name = String::new();
+                        let mut vram = 0u64;
+                        for line in uevent.lines() {
+                            if line.starts_with("PCI_ID=") {
+                                let pci_id = line.trim_start_matches("PCI_ID=");
+                                gpu_name = Self::pci_id_to_name(pci_id);
+                            }
+                            if line.starts_with("TUREINFO=") {
+                                let info = line.trim_start_matches("TUREINFO=");
+                                if let Some(idx) = info.find("total=") {
+                                    let vram_str = &info[idx + 6..];
+                                    vram = vram_str.parse::<u64>().unwrap_or(0) / 1024 / 1024;
+                                }
+                            }
+                        }
+                        if !gpu_name.is_empty() {
+                            self.gpu_name = gpu_name;
+                            self.gpu_memory_total = vram as u64;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try lspci for any GPU
+        let output = std::process::Command::new("lspci")
+            .args(["-v", "-m", "-nn"])
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if line.contains("VGA") || line.contains("Display") {
+                        let parts: Vec<&str> = line.split(|c| c == '[' || c == ']').collect();
+                        if let Some(name_idx) = parts.iter().position(|p| p.contains("AMD") || p.contains("Radeon")) {
+                            if name_idx > 0 {
+                                self.gpu_name = parts[name_idx].trim().to_string();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if self.gpu_name.is_empty() {
             self.gpu_name = "No GPU detected".to_string();
+        }
+    }
+
+    fn pci_id_to_name(pci_id: &str) -> String {
+        match pci_id {
+            "1002:67DF" => "Radeon RX 570".to_string(),
+            "1002:67DF:1002:0B31" => "Radeon RX 570 8GB".to_string(),
+            "1002:67FF" => "Radeon RX 580".to_string(),
+            "1002:67FF:1002:0B31" => "Radeon RX 580 8GB".to_string(),
+            "1002:68D8" => "Radeon RX 5500".to_string(),
+            "1002:68E0" => "Radeon RX 5600 XT".to_string(),
+            "1002:6919" => "Radeon RX 480".to_string(),
+            "1002:687F" => "Radeon RX Vega 56".to_string(),
+            "1002:6870" => "Radeon RX Vega 64".to_string(),
+            "1002:73FF" => "Radeon RX 7600".to_string(),
+            "1002:7480" => "Radeon RX 7700 XT".to_string(),
+            "1002:7481" => "Radeon RX 7800 XT".to_string(),
+            "1002:74FF" => "Radeon RX 7900 XTX".to_string(),
+            _ => format!("AMD GPU ({})", pci_id),
         }
     }
 }

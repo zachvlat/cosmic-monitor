@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build cosmic-monitor flatpak package
+# Build cosmicfetch flatpak package
 # 
 # System dependencies needed to BUILD (install with apt):
 #   sudo apt install -y \
@@ -24,7 +24,7 @@ RUNTIME_VERSION="24.08"
 flatpak install -y flathub "org.freedesktop.Platform/x86_64/${RUNTIME_VERSION}" "org.freedesktop.Sdk/x86_64/${RUNTIME_VERSION}" || true
 
 # Clean previous builds
-rm -rf .flatpak-builder/repo /tmp/cosmic-monitor-build /tmp/build-dir
+rm -rf .flatpak-builder/repo /tmp/cosmicfetch-build /tmp/build-dir
 
 # Build release binary
 cargo build --release
@@ -34,21 +34,21 @@ mkdir -p .flatpak-builder/repo
 ostree --repo=.flatpak-builder/repo init --mode=archive
 
 # Initialize flatpak build dir with runtime
-flatpak build-init /tmp/build-dir com.zachvlat.cosmic-monitor org.freedesktop.Platform/x86_64/${RUNTIME_VERSION} org.freedesktop.Sdk/x86_64/${RUNTIME_VERSION}
+flatpak build-init /tmp/build-dir com.zachvlat.cosmicfetch org.freedesktop.Platform/x86_64/${RUNTIME_VERSION} org.freedesktop.Sdk/x86_64/${RUNTIME_VERSION}
 
 # Create directory structure
 mkdir -p /tmp/build-dir/files/{bin,share/applications,share/metainfo,share/icons/hicolor/scalable/apps}
 
 # Copy binary
-cp target/release/cosmic-monitor /tmp/build-dir/files/bin/
+cp target/release/cosmicfetch /tmp/build-dir/files/bin/
 
 # Copy resources
-cp resources/app.desktop /tmp/build-dir/files/share/applications/com.zachvlat.cosmic-monitor.desktop
-cp resources/app.metainfo.xml /tmp/build-dir/files/share/metainfo/com.zachvlat.cosmic-monitor.metainfo.xml
-cp resources/icons/hicolor/scalable/apps/icon.svg /tmp/build-dir/files/share/icons/hicolor/scalable/apps/com.zachvlat.cosmic-monitor.svg
+cp resources/app.desktop /tmp/build-dir/files/share/applications/com.zachvlat.cosmicfetch.desktop
+cp resources/app.metainfo.xml /tmp/build-dir/files/share/metainfo/com.zachvlat.cosmicfetch.metainfo.xml
+cp resources/icons/hicolor/scalable/apps/com.zachvlat.cosmicfetch.svg /tmp/build-dir/files/share/icons/hicolor/scalable/apps/com.zachvlat.cosmicfetch.svg
 
 # Finalize with permissions (filesystem=host:ro for accessing host commands like flatpak, dpkg)
-flatpak build-finish /tmp/build-dir --command=cosmic-monitor \
+flatpak build-finish /tmp/build-dir --command=cosmicfetch \
     --share=ipc \
     --socket=fallback-x11 \
     --socket=wayland \
@@ -59,22 +59,25 @@ flatpak build-finish /tmp/build-dir --command=cosmic-monitor \
     --filesystem=/run/host/usr/sbin:ro \
     --filesystem=/run/host/bin:ro \
     --filesystem=/run/host/sbin:ro \
+    --filesystem=/usr/bin:ro \
+    --filesystem=/usr/sbin:ro \
+    --filesystem=/sys:ro \
     --talk-name=org.freedesktop.Flatpak
 
 # Fix metadata to use correct runtime
 cat > /tmp/build-dir/metadata << 'METADATA'
 [Application]
-name=com.zachvlat.cosmic-monitor
+name=com.zachvlat.cosmicfetch
 runtime=org.freedesktop.Platform/x86_64/24.08
 runtime-version=24.08
 sdk=org.freedesktop.Sdk/x86_64/24.08
-command=cosmic-monitor
+command=cosmicfetch
 
 [Context]
 shared=network;ipc;
 sockets=x11;wayland;fallback-x11;
 devices=dri;
-filesystems=/run/host/bin:ro;/run/host/sbin:ro;/run/host/usr/bin:ro;/run/host/usr/sbin:ro;host:ro;
+filesystems=/run/host/bin:ro;/run/host/sbin:ro;/run/host/usr/bin:ro;/run/host/usr/sbin:ro;/usr/bin:ro;/usr/sbin:ro;/sys:ro;host:ro;
 
 [Session Bus Policy]
 org.freedesktop.Flatpak=talk
@@ -82,10 +85,10 @@ METADATA
 
 # Export to repo and create bundle
 flatpak build-export .flatpak-builder/repo /tmp/build-dir
-flatpak build-bundle .flatpak-builder/repo cosmic-monitor.flatpak com.zachvlat.cosmic-monitor
+flatpak build-bundle .flatpak-builder/repo cosmicfetch.flatpak com.zachvlat.cosmicfetch
 
-echo "Done: cosmic-monitor.flatpak"
+echo "Done: cosmicfetch.flatpak"
 
 # To install on another PC:
-#   flatpak install cosmic-monitor.flatpak
-#   flatpak run com.zachvlat.cosmic-monitor
+#   flatpak install cosmicfetch.flatpak
+#   flatpak run com.zachvlat.cosmicfetch

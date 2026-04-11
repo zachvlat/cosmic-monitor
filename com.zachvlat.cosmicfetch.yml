@@ -1,10 +1,10 @@
-app-id: com.zachvlat.cosmic-monitor
+app-id: com.zachvlat.cosmicfetch
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: cosmic-monitor
+command: cosmicfetch
 finish-args:
   - --device=dri
   - --share=ipc
@@ -22,16 +22,16 @@ finish-args:
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
-    CARGO_HOME: /run/build/cosmic-monitor/cargo
+    CARGO_HOME: /run/build/cosmicfetch/cargo
 modules:
-  - name: cosmic-monitor
+  - name: cosmicfetch
     buildsystem: simple
     build-commands:
       - cargo build --release --manifest-path=Cargo.toml
-      - install -Dm755 target/release/cosmic-monitor /app/bin/cosmic-monitor
-      - install -Dm644 resources/app.desktop /app/share/applications/com.zachvlat.cosmic-monitor.desktop
-      - install -Dm644 resources/app.metainfo.xml /app/share/metainfo/com.zachvlat.cosmic-monitor.metainfo.xml
-      - install -Dm644 resources/icons/hicolor/scalable/apps/icon.svg /app/share/icons/hicolor/scalable/apps/com.zachvlat.cosmic-monitor.svg
+      - install -Dm755 target/release/cosmicfetch /app/bin/cosmicfetch
+      - install -Dm644 resources/app.desktop /app/share/applications/com.zachvlat.cosmicfetch.desktop
+      - install -Dm644 resources/app.metainfo.xml /app/share/metainfo/com.zachvlat.cosmicfetch.metainfo.xml
+      - install -Dm644 resources/icons/hicolor/scalable/apps/icon.svg /app/share/icons/hicolor/scalable/apps/com.zachvlat.cosmicfetch.svg
     sources:
       - type: dir
         path: .

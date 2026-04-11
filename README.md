@@ -1,4 +1,4 @@
-# Cosmic Monitor
+# Cosmicfetch
 
 A system monitor application for COSMIC desktop.
 
@@ -23,7 +23,7 @@ cargo build --release
 ## Running
 
 ```bash
-./target/release/cosmic-monitor
+./target/release/cosmicfetch
 ```
 
 ## Flatpak
@@ -33,11 +33,11 @@ Build the Flatpak:
 ./build-flatpak.sh
 ```
 
-This creates `cosmic-monitor.flatpak` which can be installed on other computers.
+This creates `cosmicfetch.flatpak` which can be installed on other computers.
 
 Install:
 ```bash
-flatpak install cosmic-monitor.flatpak
+flatpak install cosmicfetch.flatpak
 ```
 
 ## Dependencies

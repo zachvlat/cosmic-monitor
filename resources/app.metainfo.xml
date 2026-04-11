@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.zachvlat.cosmic-monitor</id>
+  <id>com.zachvlat.cosmicfetch</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-v3</project_license>
-  <name>Cosmic Monitor</name>
+  <name>Cosmicfetch</name>
   <summary>Monitor system resources</summary>
   <description>
     <p>A system monitor application for COSMIC desktop that displays CPU usage, memory usage, and process information.</p>
   </description>
   <url type="vcs-browser">https://github.com/zachvlat/cosmic-monitor</url>
-  <launchable type="desktop-id">com.zachvlat.cosmic-monitor.desktop</launchable>
-  <icon>com.zachvlat.cosmic-monitor</icon>
+  <launchable type="desktop-id">com.zachvlat.cosmicfetch.desktop</launchable>
+  <icon>com.zachvlat.cosmicfetch</icon>
   <provides>
-    <id>com.zachvlat.cosmic-monitor</id>
-    <binary>cosmic-monitor</binary>
+    <id>com.zachvlat.cosmicfetch</id>
+    <binary>cosmicfetch</binary>
   </provides>
   <requires>
     <display_length compare="ge">360</display_length>
