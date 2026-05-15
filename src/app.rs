@@ -28,11 +28,13 @@ pub struct AppModel {
     os_name: String,
     kernel: String,
     uptime: u64,
-    flatpaks: u32,
     packages: u32,
+    flatpaks: u32,
+    snaps: u32,
     shell: String,
     resolution: String,
     de_wm: String,
+    init: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +129,7 @@ impl cosmic::Application for AppModel {
 
         let os_name = Self::get_os_name();
         let resolution = Self::get_resolution();
+        let init = Self::detect_init();
 
         let mut app = AppModel {
             core,
@@ -146,24 +149,19 @@ impl cosmic::Application for AppModel {
             os_name,
             kernel,
             uptime,
-            flatpaks: 0,
             packages: 0,
+            flatpaks: 0,
+            snaps: 0,
             shell: shell_name,
             resolution,
             de_wm,
+            init,
         };
 
         app.refresh_gpu_info();
-        
-        // Fetch package and flatpak counts asynchronously
-        let task = Task::future(async {
-            // let packages = AppModel::get_packages_count().await;
-            let packages = 0;
-            let flatpaks = AppModel::get_flatpaks_count().await;
-            // We'll need to send these as messages, but for now just log
-            eprintln!("Packages: {}, Flatpaks: {}", packages, flatpaks);
-            Task::<Self::Message>::none()
-        });
+        app.packages = Self::count_packages();
+        app.flatpaks = Self::count_flatpaks();
+        app.snaps = Self::count_snaps();
 
         let command = app.update_title();
         (app, command)
@@ -237,40 +235,102 @@ impl cosmic::Application for AppModel {
 }
 
 impl AppModel {
-    // async fn get_packages_count() -> u32 {
-    //     tokio::process::Command::new("/run/host/usr/bin/sh")
-    //         .args(["-c", 
-    //             "for cmd in /run/host/usr/bin/pacman /run/host/usr/bin/dnf /run/host/usr/bin/zypper /run/host/bin/rpm /run/host/usr/bin/dpkg; do \
-    //                 if [ -x \"$cmd\" ]; then \
-    //                     case \"$cmd\" in \
-    //                         *pacman) pacman -Qq 2>/dev/null | wc -l; break;; \
-    //                         *dnf) dnf list installed 2>/dev/null | wc -l; break;; \
-    //                         *zypper) zypper -q se -t package 2>/dev/null | wc -l; break;; \
-    //                         *rpm) rpm -qa 2>/dev/null | wc -l; break;; \
-    //                         *dpkg) dpkg -f \"${binary:Package}\" -W 2>/dev/null | wc -l; break;; \
-    //                     esac; \
-    //                 fi; \
-    //              done"
-    //         ])
-    //         .output()
-    //         .await
-    //         .ok()
-    //         .and_then(|o| String::from_utf8(o.stdout).ok())
-    //         .and_then(|s| s.trim().parse().ok())
-    //         .unwrap_or(0)
-    // }
-    
-    async fn get_flatpaks_count() -> u32 {
-        tokio::process::Command::new("/run/host/usr/bin/flatpak")
-            .args(["list", "--app", "--columns=application"])
-            .output()
-            .await
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
+    fn run_host_command(cmd: &str, args: &[&str]) -> Option<String> {
+        let paths = [
+            format!("/run/host/usr/bin/{}", cmd),
+            cmd.to_string(),
+        ];
+        for path in &paths {
+            if let Ok(output) = std::process::Command::new(path).args(args).output() {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    if !stdout.is_empty() {
+                        return Some(stdout);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn count_packages() -> u32 {
+        for (cmd, args) in &[
+            ("dpkg-query", &["-W", "-f=${Package}\n"] as &[&str]),
+            ("pacman", &["-Qq"]),
+            ("rpm", &["-qa"]),
+            ("dnf", &["list", "installed"]),
+            ("zypper", &["se", "-t", "package"]),
+            ("apk", &["info"]),
+        ] {
+            if let Some(output) = Self::run_host_command(cmd, args) {
+                let count = output
+                    .lines()
+                    .filter(|l| {
+                        let l = l.trim();
+                        !l.is_empty()
+                            && !l.contains("listed installed")
+                            && !l.contains("Loading repository data")
+                            && !l.contains("Reading installed packages")
+                            && !l.starts_with("--")
+                    })
+                    .count() as u32;
+                if count > 0 {
+                    return count;
+                }
+            }
+        }
+        0
+    }
+
+    fn count_flatpaks() -> u32 {
+        Self::run_host_command("flatpak", &["list", "--app", "--columns=application"])
             .map(|s| s.lines().count() as u32)
             .unwrap_or(0)
     }
+
+    fn count_snaps() -> u32 {
+        Self::run_host_command("snap", &["list"])
+            .map(|s| {
+                s.lines()
+                    .skip(1)
+                    .filter(|l| !l.trim().is_empty())
+                    .count() as u32
+            })
+            .unwrap_or(0)
+    }
     
+    fn detect_init() -> String {
+        if let Ok(comm) = std::fs::read_to_string("/proc/1/comm") {
+            let init = comm.trim().to_string();
+            match init.as_str() {
+                "systemd" => return "systemd".to_string(),
+                "openrc-init" => return "OpenRC".to_string(),
+                "runit" => return "runit".to_string(),
+                "s6-svscan" => return "s6".to_string(),
+                "dumb-init" => return "dumb-init".to_string(),
+                "tini" => return "tini".to_string(),
+                "init" => {
+                    if std::path::Path::new("/etc/init.d").exists() {
+                        return "sysvinit".to_string();
+                    }
+                    return "init".to_string();
+                }
+                _ => {
+                    if let Ok(cmdline) = std::fs::read_to_string("/proc/1/cmdline") {
+                        let cmdline = cmdline.replace('\0', " ");
+                        if let Some(first) = cmdline.split_whitespace().next() {
+                            if first != init {
+                                return first.to_string();
+                            }
+                        }
+                    }
+                    return init;
+                }
+            }
+        }
+        "Unknown".to_string()
+    }
+
     fn get_os_name() -> String {
         for path in &["/run/host/etc/os-release", "/etc/os-release"] {
             if let Ok(content) = std::fs::read_to_string(path) {
@@ -391,6 +451,7 @@ impl AppModel {
                Shell: {}\n\
                Window Server: {}\n\
                DE/WM: {}\n\
+               Init: {}\n\
                CPU: {}\n\
                Memory: {:.1} / {:.1} GB ({:.0}%)",
             self.os_name,
@@ -400,6 +461,7 @@ impl AppModel {
             self.shell,
             self.resolution,
             self.de_wm,
+            self.init,
             cpu_name,
             memory_used_gb,
             memory_total_gb,
@@ -432,11 +494,13 @@ impl AppModel {
             widget::text::body("Host").into(),
             widget::text::body("Kernel").into(),
             widget::text::body("Uptime").into(),
-            // widget::text::body("Packages").into(),
-            // widget::text::body("Flatpaks").into(),
             widget::text::body("Shell").into(),
             widget::text::body("Window Server").into(),
             widget::text::body("DE/WM").into(),
+            widget::text::body("Init").into(),
+            widget::text::body("Packages").into(),
+            widget::text::body("Flatpaks").into(),
+            widget::text::body("Snaps").into(),
             widget::text::body("CPU").into(),
             widget::text::body("GPU").into(),
             widget::text::body("Memory").into(),
@@ -448,11 +512,13 @@ impl AppModel {
             widget::text::body(self.hostname.clone()).into(),
             widget::text::body(self.kernel.clone()).into(),
             widget::text::body(uptime_str.clone()).into(),
-            // widget::text::body(self.packages.to_string()).into(),
-            // widget::text::body(self.flatpaks.to_string()).into(),
             widget::text::body(self.shell.clone()).into(),
             widget::text::body(self.resolution.clone()).into(),
             widget::text::body(self.de_wm.clone()).into(),
+            widget::text::body(self.init.clone()).into(),
+            widget::text::body(self.packages.to_string()).into(),
+            widget::text::body(self.flatpaks.to_string()).into(),
+            widget::text::body(self.snaps.to_string()).into(),
             widget::text::body(cpu_name.clone()).into(),
             widget::text::body(self.gpu_name.clone()).into(),
             widget::text::body(format!(
@@ -1051,22 +1117,36 @@ impl AppModel {
         }
 
         // Try lspci for any GPU
+        // Use -v -m (machine-readable, no -nn to avoid bracket PCI IDs)
+        // Format: slot "class" "vendor" "device" -rXX "svendor" "sdevice"
         let output = std::process::Command::new("lspci")
-            .args(["-v", "-m", "-nn"])
+            .args(["-v", "-m"])
             .output();
 
         if let Ok(output) = output {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 for line in stdout.lines() {
-                    if line.contains("VGA") || line.contains("Display") {
-                        let parts: Vec<&str> = line.split(|c| c == '[' || c == ']').collect();
-                        if let Some(name_idx) = parts.iter().position(|p| p.contains("AMD") || p.contains("Radeon")) {
-                            if name_idx > 0 {
-                                self.gpu_name = parts[name_idx].trim().to_string();
-                                return;
-                            }
-                        }
+                    if line.contains("VGA")
+                        || line.contains("3D")
+                        || line.contains("Display")
+                    {
+                        let quoted: Vec<&str> = line.split('"').collect();
+                        // quoted[1] = class, quoted[3] = vendor, quoted[5] = device name
+                        let vendor = quoted.get(3).map(|s| s.trim()).unwrap_or("");
+                        let device = quoted.get(5).map(|s| s.trim()).unwrap_or("");
+
+                        // Use vendor + device name
+                        let gpu_name = if !device.is_empty() && !vendor.is_empty() {
+                            format!("{} {}", vendor, device)
+                        } else if !device.is_empty() {
+                            device.to_string()
+                        } else {
+                            continue;
+                        };
+
+                        self.gpu_name = gpu_name;
+                        return;
                     }
                 }
             }

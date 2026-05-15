@@ -1,37 +1,61 @@
 app-id: com.zachvlat.cosmicfetch
+
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: "24.08"
+
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
+
 command: cosmicfetch
+
 finish-args:
   - --device=dri
   - --share=ipc
   - --share=network
-  - --socket=fallback-x11
+
   - --socket=wayland
+  - --socket=fallback-x11
+
   - --filesystem=host:ro
+
   - --filesystem=/run/host/usr/bin:ro
   - --filesystem=/run/host/usr/sbin:ro
   - --filesystem=/run/host/bin:ro
   - --filesystem=/run/host/sbin:ro
+
+  - --filesystem=/var/lib/flatpak:ro
+  - --filesystem=/var/lib/snapd:ro
+  - --filesystem=xdg-data/flatpak:ro
+
   - --env=PATH=/run/host/usr/bin:/run/host/bin:/usr/bin:/bin
+
   - --talk-name=org.freedesktop.Flatpak
   - --system-talk-name=org.freedesktop.PackageKit
+
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
+
   env:
     CARGO_HOME: /run/build/cosmicfetch/cargo
+    CARGO_TARGET_DIR: /run/build/cosmicfetch/target
+
 modules:
   - name: cosmicfetch
+
     buildsystem: simple
+
     build-commands:
-      - cargo build --release --manifest-path=Cargo.toml
+      - cargo build --release --locked --manifest-path=Cargo.toml
+
       - install -Dm755 target/release/cosmicfetch /app/bin/cosmicfetch
+
       - install -Dm644 resources/app.desktop /app/share/applications/com.zachvlat.cosmicfetch.desktop
+
       - install -Dm644 resources/app.metainfo.xml /app/share/metainfo/com.zachvlat.cosmicfetch.metainfo.xml
+
       - install -Dm644 resources/icons/hicolor/scalable/apps/icon.svg /app/share/icons/hicolor/scalable/apps/com.zachvlat.cosmicfetch.svg
+
     sources:
       - type: dir
         path: .
