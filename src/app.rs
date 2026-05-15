@@ -250,6 +250,61 @@ impl AppModel {
                 }
             }
         }
+        if let Ok(output) = std::process::Command::new("flatpak-spawn")
+            .arg("--host")
+            .arg(cmd)
+            .args(args)
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                if !stdout.is_empty() {
+                    return Some(stdout);
+                }
+            }
+        }
+        None
+    }
+
+    fn try_read_file(path: &str) -> Option<String> {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            return Some(content);
+        }
+        let output = std::process::Command::new("flatpak-spawn")
+            .arg("--host")
+            .arg("cat")
+            .arg(path)
+            .output().ok()?;
+        if output.status.success() {
+            let s = String::from_utf8_lossy(&output.stdout).to_string();
+            if !s.is_empty() { return Some(s); }
+        }
+        None
+    }
+
+    fn try_list_dir(path: &str) -> Option<Vec<String>> {
+        if let Ok(entries) = std::fs::read_dir(path) {
+            let names: Vec<String> = entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect();
+            if !names.is_empty() {
+                return Some(names);
+            }
+        }
+        let output = std::process::Command::new("flatpak-spawn")
+            .arg("--host")
+            .arg("ls")
+            .arg("-1")
+            .arg(path)
+            .output().ok()?;
+        if output.status.success() {
+            let s = String::from_utf8_lossy(&output.stdout);
+            let names: Vec<String> = s.lines().map(|l| l.to_string()).collect();
+            if !names.is_empty() {
+                return Some(names);
+            }
+        }
         None
     }
 
@@ -300,7 +355,7 @@ impl AppModel {
     }
     
     fn detect_init() -> String {
-        if let Ok(comm) = std::fs::read_to_string("/proc/1/comm") {
+        if let Some(comm) = Self::try_read_file("/proc/1/comm") {
             let init = comm.trim().to_string();
             match init.as_str() {
                 "systemd" => return "systemd".to_string(),
@@ -316,7 +371,7 @@ impl AppModel {
                     return "init".to_string();
                 }
                 _ => {
-                    if let Ok(cmdline) = std::fs::read_to_string("/proc/1/cmdline") {
+                    if let Some(cmdline) = Self::try_read_file("/proc/1/cmdline") {
                         let cmdline = cmdline.replace('\0', " ");
                         if let Some(first) = cmdline.split_whitespace().next() {
                             if first != init {
@@ -1040,57 +1095,39 @@ impl AppModel {
 
     fn refresh_gpu_info(&mut self) {
         // Try NVIDIA first
-        let output = std::process::Command::new("nvidia-smi")
-            .arg("--query-gpu=name,utilization.gpu,memory.used,memory.total")
-            .arg("--format=csv,noheader,nounits")
-            .output();
-
-        if let Ok(output) = output {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if let Some(line) = stdout.lines().next() {
-                    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-                    if parts.len() >= 4 {
-                        self.gpu_name = parts[0].to_string();
-                        self.gpu_usage = parts[1].parse().unwrap_or(0.0);
-                        self.gpu_memory_used = parts[2].parse().unwrap_or(0);
-                        self.gpu_memory_total = parts[3].parse().unwrap_or(0);
-                        return;
-                    }
+        if let Some(stdout) = Self::run_host_command("nvidia-smi", &["--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"]) {
+            if let Some(line) = stdout.lines().next() {
+                let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                if parts.len() >= 4 {
+                    self.gpu_name = parts[0].to_string();
+                    self.gpu_usage = parts[1].parse().unwrap_or(0.0);
+                    self.gpu_memory_used = parts[2].parse().unwrap_or(0);
+                    self.gpu_memory_total = parts[3].parse().unwrap_or(0);
+                    return;
                 }
             }
         }
 
         // Try AMD (rocm-smi)
-        let output = std::process::Command::new("rocm-smi")
-            .arg("--querygpu")
-            .arg("-o")
-            .arg("name,utilization.gpu,memory.used,memory.total")
-            .output();
-
-        if let Ok(output) = output {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if let Some(line) = stdout.lines().skip(1).next() {
-                    let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-                    if parts.len() >= 4 {
-                        self.gpu_name = parts[0].to_string();
-                        self.gpu_usage = parts[1].parse().unwrap_or(0.0);
-                        self.gpu_memory_used = parts[2].parse::<u64>().unwrap_or(0) / 1024;
-                        self.gpu_memory_total = parts[3].parse::<u64>().unwrap_or(0) / 1024;
-                        return;
-                    }
+        if let Some(stdout) = Self::run_host_command("rocm-smi", &["--querygpu", "-o", "name,utilization.gpu,memory.used,memory.total"]) {
+            if let Some(line) = stdout.lines().skip(1).next() {
+                let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                if parts.len() >= 4 {
+                    self.gpu_name = parts[0].to_string();
+                    self.gpu_usage = parts[1].parse().unwrap_or(0.0);
+                    self.gpu_memory_used = parts[2].parse::<u64>().unwrap_or(0) / 1024;
+                    self.gpu_memory_total = parts[3].parse::<u64>().unwrap_or(0) / 1024;
+                    return;
                 }
             }
         }
 
         // Try reading from /sys/class/drm for AMD GPU
-        if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                if name.to_string_lossy().starts_with("card") && !name.to_string_lossy().contains('-') {
-                    let device_path = entry.path().join("device");
-                    if let Ok(uevent) = std::fs::read_to_string(device_path.join("uevent")) {
+        if let Some(entries) = Self::try_list_dir("/sys/class/drm") {
+            for name in &entries {
+                if name.starts_with("card") && !name.contains('-') {
+                    let uevent_path = format!("/sys/class/drm/{}/device/uevent", name);
+                    if let Some(uevent) = Self::try_read_file(&uevent_path) {
                         let mut gpu_name = String::new();
                         let mut vram = 0u64;
                         for line in uevent.lines() {
@@ -1117,37 +1154,26 @@ impl AppModel {
         }
 
         // Try lspci for any GPU
-        // Use -v -m (machine-readable, no -nn to avoid bracket PCI IDs)
-        // Format: slot "class" "vendor" "device" -rXX "svendor" "sdevice"
-        let output = std::process::Command::new("lspci")
-            .args(["-v", "-m"])
-            .output();
+        if let Some(stdout) = Self::run_host_command("lspci", &["-v", "-m"]) {
+            for line in stdout.lines() {
+                if line.contains("VGA")
+                    || line.contains("3D")
+                    || line.contains("Display")
+                {
+                    let quoted: Vec<&str> = line.split('"').collect();
+                    let vendor = quoted.get(3).map(|s| s.trim()).unwrap_or("");
+                    let device = quoted.get(5).map(|s| s.trim()).unwrap_or("");
 
-        if let Ok(output) = output {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
-                    if line.contains("VGA")
-                        || line.contains("3D")
-                        || line.contains("Display")
-                    {
-                        let quoted: Vec<&str> = line.split('"').collect();
-                        // quoted[1] = class, quoted[3] = vendor, quoted[5] = device name
-                        let vendor = quoted.get(3).map(|s| s.trim()).unwrap_or("");
-                        let device = quoted.get(5).map(|s| s.trim()).unwrap_or("");
+                    let gpu_name = if !device.is_empty() && !vendor.is_empty() {
+                        format!("{} {}", vendor, device)
+                    } else if !device.is_empty() {
+                        device.to_string()
+                    } else {
+                        continue;
+                    };
 
-                        // Use vendor + device name
-                        let gpu_name = if !device.is_empty() && !vendor.is_empty() {
-                            format!("{} {}", vendor, device)
-                        } else if !device.is_empty() {
-                            device.to_string()
-                        } else {
-                            continue;
-                        };
-
-                        self.gpu_name = gpu_name;
-                        return;
-                    }
+                    self.gpu_name = gpu_name;
+                    return;
                 }
             }
         }

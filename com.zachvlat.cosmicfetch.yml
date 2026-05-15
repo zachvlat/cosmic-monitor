@@ -1,7 +1,7 @@
 app-id: com.zachvlat.cosmicfetch
 
 runtime: org.freedesktop.Platform
-runtime-version: "24.08"
+runtime-version: "25.08"
 
 sdk: org.freedesktop.Sdk
 sdk-extensions:
@@ -19,19 +19,11 @@ finish-args:
 
   - --filesystem=host:ro
 
-  - --filesystem=/run/host/usr/bin:ro
-  - --filesystem=/run/host/usr/sbin:ro
-  - --filesystem=/run/host/bin:ro
-  - --filesystem=/run/host/sbin:ro
-
-  - --filesystem=/var/lib/flatpak:ro
   - --filesystem=/var/lib/snapd:ro
-  - --filesystem=xdg-data/flatpak:ro
 
   - --env=PATH=/run/host/usr/bin:/run/host/bin:/usr/bin:/bin
 
   - --talk-name=org.freedesktop.Flatpak
-  - --system-talk-name=org.freedesktop.PackageKit
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
@@ -54,7 +46,7 @@ modules:
 
       - install -Dm644 resources/app.metainfo.xml /app/share/metainfo/com.zachvlat.cosmicfetch.metainfo.xml
 
-      - install -Dm644 resources/icons/hicolor/scalable/apps/icon.svg /app/share/icons/hicolor/scalable/apps/com.zachvlat.cosmicfetch.svg
+      - install -Dm644 resources/icons/hicolor/scalable/apps/com.zachvlat.cosmicfetch.svg /app/share/icons/hicolor/scalable/apps/com.zachvlat.cosmicfetch.svg
 
     sources:
       - type: dir
